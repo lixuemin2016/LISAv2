@@ -32,7 +32,8 @@ function Confirm-Performance() {
 	# count is non header lines
 	$isEmpty = ($testDataCsv.Count -eq 0)
 	if ($isEmpty) {
-		throw "No data downloaded from vm"
+		Write-LogErr "No data downloaded from vm"
+		return "FAIL"
 	}
 
 	foreach($phaseData in $testDataCsv) {
@@ -53,6 +54,11 @@ function Confirm-Performance() {
 		}
 	}
 
-	return (Confirm-WithinPercentage $before_rx_pps $after_rx_pps 10) -and
-			(Confirm-WithinPercentage $before_tx_pps $after_tx_pps 10)
+	if (!(Confirm-WithinPercentage $before_rx_pps $after_rx_pps 10) -or
+		!(Confirm-WithinPercentage $before_tx_pps $after_tx_pps 10)) {
+		Write-Error "Perf Failure: before and after pps not within 10%"
+		return "FAIL"
+	}
+
+	return "PASS"
 }

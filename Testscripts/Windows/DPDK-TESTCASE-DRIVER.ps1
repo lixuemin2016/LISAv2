@@ -18,7 +18,8 @@
 #		Set-Runtime function can get that phase by reading "currentPhase". This
 #		allows both sides of the test to syncrhonize.
 #   3. Confirm-Performance
-#		To parse and finalize and data collected during the test run.
+#		To parse and finalize and data collected during the test run. If test
+#		provides this function it may return "PASS", "FAIL", or "ABORTED"
 #
 # The testcase provides 2 functions in its bash file:
 #   1. Dpdk_Configure
@@ -68,7 +69,7 @@ function Get-FunctionAndWarn() {
 	}
 }
 
-function Get-FunctionAndInvoke() {
+function Invoke-FunctionIfExists() {
 	param (
 		[string] $funcName
 	)
@@ -240,35 +241,33 @@ collect_VM_properties
 				Write-LogInfo "Read new phase: $currentPhase"
 				$oldPhase = $currentPhase
 			}
-			Get-FunctionAndInvoke("Set-Runtime")
+			Invoke-FunctionIfExists("Set-Runtime")
 
 			++$outputCounter
 			Wait-Time -seconds 5
 		}
-		$finalState = Run-LinuxCmd -ip $masterVM.PublicIP -port $masterVM.SSHPort -username $superUser -password $password -command "cat /root/state.txt"
+		$remoteTestResult = Run-LinuxCmd -ip $masterVM.PublicIP -port $masterVM.SSHPort -username $superUser -password $password -command "cat /root/state.txt"
 		Copy-RemoteFiles -downloadFrom $masterVM.PublicIP -port $masterVM.SSHPort -username $superUser -password $password -download -downloadTo $LogDir -files "*.csv, *.txt, *.log"
 
 		$testDataCsv = Import-Csv -Path "${LogDir}\dpdk_test.csv"
-		if (!$testDataCsv) {
-			Write-LogErr "Could not get performance data. Failing the test."
-			$finalState = "TestFailed"
-		}
 
-		if ($finalState -imatch "TestFailed") {
+		$testResult = "FAIL"
+		if ($remoteTestResult -imatch "TestFailed") {
 			Write-LogErr "Test failed. Last known output: $currentOutput."
 			$testResult = "FAIL"
 		}
-		elseif ($finalState -imatch "TestAborted") {
+		elseif ($remoteTestResult -imatch "TestAborted") {
 			Write-LogErr "Test Aborted. Last known output: $currentOutput."
 			$testResult = "ABORTED"
 		}
-		elseif ($finalState -imatch "TestCompleted") {
+		elseif ($remoteTestResult -imatch "TestCompleted") {
 			Write-LogInfo "Test Completed."
 			Copy-RemoteFiles -downloadFrom $masterVM.PublicIP -port $masterVM.SSHPort -username $superUser -password $password -download -downloadTo $LogDir -files "*.tar.gz"
 			$testResult = "PASS"
-			$testResult = (Get-FunctionAndInvoke("Confirm-Performance"))
+			# we set testResult to PASS first incase user doens't provide "Confirm-Performance" function
+			$testResult = (Invoke-FunctionIfExists("Confirm-Performance"))
 		}
-		elseif ($finalState -imatch "TestRunning") {
+		elseif ($remoteTestResult -imatch "TestRunning") {
 			Write-LogWarn "Powershell background job for test is completed but VM is reporting that test is still running. Please check $LogDir\zkConsoleLogs.txt"
 			Write-LogWarn "Content of summary.log : $testSummary"
 			$testResult = "ABORTED"
@@ -331,10 +330,9 @@ collect_VM_properties
 		$ErrorMessage =  $_.Exception.Message
 		$ErrorLine = $_.InvocationInfo.ScriptLineNumber
 		Write-LogErr "EXCEPTION : $ErrorMessage at line: $ErrorLine"
+		# if there is an exception tests aborts regardless of previous state
+		$testResult = "ABORTED"
 	} finally {
-		if (!$testResult) {
-			$testResult = "Aborted"
-		}
 		$resultArr += $testResult
 	}
 

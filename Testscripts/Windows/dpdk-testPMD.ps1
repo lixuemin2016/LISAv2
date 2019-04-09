@@ -26,9 +26,9 @@ function Confirm-Performance() {
 	}
 
 	# count is non header lines
-	$isEmpty = ($testDataCsv.Count -eq 0)
-	if ($isEmpty) {
-		throw "No data downloaded from vm"
+	if ($testDataCsv.Count -eq 0) {
+		Write-LogErr "No data downloaded from vm"
+		return "FAIL"
 	}
 
 	foreach($testRun in $testDataCsv) {
